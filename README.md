@@ -1,0 +1,42 @@
+# Jio Gemini Activation Scanner — Web UI
+
+## מבנה
+- `scanner.py` — הסורק: טוען פאנלים, סורק מכשירים מחוברים, מאתר מספרים ומפעיל אותם.
+- `app.py` — שרת Flask: מפעיל את הסורק בתהליך נפרד, מנהל את מסד הנתונים (פאנלים/תוצאות), וחושף API + ממשק.
+- `templates/index.html` — ממשק RTL.
+- `static/style.css` — עיצוב Dark Modern SaaS.
+- `static/app.js` — כל לוגיקת הממשק: לוח בקרה, ניהול Panels (כולל הוספה מטקסט חופשי, בדיקת זמינות, רשימת "לבדיקה"), לינקים תקינים, וצפייה במסד הנתונים.
+- `gemini_results.csv` / `gemini_activation_links.txt` — נכתבים בזמן אמת על ידי הסורק בכל ריצה; `app.py` מסנכרן מהם שורות חדשות למסד הנתונים.
+
+## מסד נתונים
+כל הפאנלים והתוצאות מנוהלים ב-SQLite (`scanner.db`), ולא בקובצי טקסט. שני מצבי הפעלה:
+
+- **מקומי (ברירת מחדל)** — קובץ `scanner.db` בתיקיית הפרויקט.
+- **Turso (ענן)** — אם מוגדרים משתני הסביבה `TURSO_DATABASE_URL` ו-`TURSO_AUTH_TOKEN`, האפליקציה מתחברת אוטומטית למסד בענן במקום לקובץ המקומי. שימושי לפריסה בשירותים כמו Render, שבהם הדיסק המקומי לא בהכרח נשמר בין דיפלוי לדיפלוי.
+
+ניתן להגדיר אותם בקובץ `.env` בתיקיית הפרויקט (לא נכנס ל-git):
+```
+TURSO_DATABASE_URL=libsql://your-db-name.turso.io
+TURSO_AUTH_TOKEN=your-token
+```
+
+## הרשאת גישה
+אם מוגדר משתנה הסביבה `APP_PASSWORD`, כל הממשק מוגן ב-Basic Auth (שם משתמש מ-`APP_USERNAME`, ברירת מחדל `admin`). ללא `APP_PASSWORD` הממשק פתוח — מתאים לפיתוח מקומי בלבד. **חובה להגדיר סיסמה לפני חשיפת השרת לאינטרנט.**
+
+## התקנה מקומית (Windows)
+```powershell
+py -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
+py app.py
+```
+פתח בדפדפן: `http://127.0.0.1:5000`
+
+## דפלוי ל-Render
+1. חבר את הריפו ב-GitHub לחשבון Render, וצור **Web Service** חדש (לא Static Site).
+2. Build Command: `pip install -r requirements.txt`
+3. Start Command: `python app.py`
+4. משתני סביבה נדרשים (בממשק Render, לא בקובץ):
+   - `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` — כדי שהנתונים ישרדו בין דיפלויים.
+   - `APP_PASSWORD` (ומומלץ גם `APP_USERNAME`) — כדי להגן על הממשק.
+5. האפליקציה מאזינה אוטומטית לפורט שרנדר מזריקה (`$PORT`), אין צורך בהגדרה נוספת.

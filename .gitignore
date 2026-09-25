@@ -1,0 +1,6 @@
+.env
+__pycache__/
+*.pyc
+scanner.db
+_active_panels.txt
+.venv/
