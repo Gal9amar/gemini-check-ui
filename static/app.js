@@ -20,7 +20,7 @@ function sweetAlert(message,opts={}){
     $('sweetIcon').className='sweet-icon '+type;
     $('sweetMessage').textContent=message;
     $('sweetActions').innerHTML='<button id="sweetOk" class="sweet-btn primary" type="button"></button>';
-    $('sweetOk').textContent=opts.okText||'הבנתי';
+    $('sweetOk').textContent=opts.okText||(uiLanguage==='en'?'Got it':'הבנתי');
     overlay.classList.add('show');
     const finish=()=>{overlay.classList.remove('show');resolve(true)};
     $('sweetOk').onclick=finish;
@@ -36,8 +36,8 @@ function sweetConfirm(message,opts={}){
     $('sweetIcon').className='sweet-icon '+type;
     $('sweetMessage').textContent=message;
     $('sweetActions').innerHTML=`<button id="sweetCancel" class="sweet-btn secondary" type="button"></button><button id="sweetConfirmBtn" class="sweet-btn ${opts.danger?'danger':'primary'}" type="button"></button>`;
-    $('sweetCancel').textContent=opts.cancelText||'ביטול';
-    $('sweetConfirmBtn').textContent=opts.confirmText||'אישור';
+    $('sweetCancel').textContent=opts.cancelText||(uiLanguage==='en'?'Cancel':'ביטול');
+    $('sweetConfirmBtn').textContent=opts.confirmText||(uiLanguage==='en'?'Confirm':'אישור');
     overlay.classList.add('show');
     const finish=val=>{overlay.classList.remove('show');resolve(val)};
     $('sweetCancel').onclick=()=>finish(false);
@@ -59,11 +59,11 @@ async function api(url,method='GET',body=null){
   return{ok:response.ok,status:response.status,data};
 }
 function jsonp(kind){if(__redirecting)return new Promise(()=>{});return new Promise((resolve,reject)=>{const callback=`dashboardData${Date.now()}${Math.floor(Math.random()*10000)}`,script=document.createElement('script'),timer=setTimeout(()=>cleanup(new Error('Data request timed out')),8000);const cleanup=error=>{clearTimeout(timer);delete window[callback];script.remove();error?reject(error):null};window[callback]=data=>{cleanup();if(data&&data.__unauthenticated__){goToLogin();return}resolve(data)};script.onerror=()=>cleanup(new Error('Data request failed'));script.src=`/api/dashboard/${kind}?callback=${callback}`;document.head.append(script)})}
-async function getStatus(){try{renderStatus(await jsonp('status'));translatePage(uiLanguage)}catch(e){}}
-function renderStatus(s){$('panels').textContent=s.panels??0;$('devices').textContent=s.devices??0;$('numbers').textContent=s.numbers??0;$('links').textContent=s.links??0;$('percent').textContent=(s.progress??0)+'%';$('bar').style.width=(s.progress??0)+'%';$('currentStep').textContent=s.step||'ממתין להתחלה';$('device').textContent=s.current_device||'—';$('mobile').textContent=s.current_number||'—';$('logs').textContent=(s.logs||[]).join('\n');$('logs').scrollTop=$('logs').scrollHeight;$('startBtn').disabled=!!s.running;$('stopBtn').disabled=!s.running;$('live').textContent=s.running?'פעיל':'לא פעיל';$('live').classList.toggle('on',!!s.running);const order=['Loading Panels','Scanning Messages','OTP / Activation','Completed'];document.querySelectorAll('.step').forEach((el,i)=>{el.classList.remove('active','done');const x=order[i];if(s.step===x)el.classList.add('active');if(order.indexOf(s.step)>i||s.step==='Completed')el.classList.add('done');el.querySelector('em').textContent=el.classList.contains('done')?'הושלם':el.classList.contains('active')?'פעיל':'ממתין';});}
+async function getStatus(){try{renderStatus(await jsonp('status'))}catch(e){}}
+function renderStatus(s){const en=uiLanguage==='en';$('panels').textContent=s.panels??0;$('devices').textContent=s.devices??0;$('numbers').textContent=s.numbers??0;$('links').textContent=s.links??0;$('percent').textContent=(s.progress??0)+'%';$('bar').style.width=(s.progress??0)+'%';$('currentStep').textContent=s.step||(en?'Waiting to start':'ממתין להתחלה');$('device').textContent=s.current_device||'—';$('mobile').textContent=s.current_number||'—';$('logs').textContent=(s.logs||[]).join('\n');$('logs').scrollTop=$('logs').scrollHeight;$('startBtn').disabled=!!s.running;$('stopBtn').disabled=!s.running;$('live').textContent=s.running?(en?'Active':'פעיל'):(en?'Inactive':'לא פעיל');$('live').classList.toggle('on',!!s.running);const order=['Loading Panels','Scanning Messages','OTP / Activation','Completed'];document.querySelectorAll('.step').forEach((el,i)=>{el.classList.remove('active','done');const x=order[i];if(s.step===x)el.classList.add('active');if(order.indexOf(s.step)>i||s.step==='Completed')el.classList.add('done');el.querySelector('em').textContent=el.classList.contains('done')?(en?'Done':'הושלם'):el.classList.contains('active')?(en?'Active':'פעיל'):(en?'Waiting':'ממתין');});}
 async function loadResults(){try{rows=await jsonp('results');renderResults()}catch(e){}}
 function statusClass(x){if(x==='activation_url_found')return'success';if(x==='already_active')return'warn';if(x.includes('failed'))return'error';return'info'}
-function renderResults(){const q=($('search').value||'').toLowerCase(),filter=$('statusFilter').value;const filtered=rows.filter(x=>JSON.stringify(x).toLowerCase().includes(q)&&(!filter||(x.status||'').toLowerCase().includes(filter)));$('resultCount').textContent=`${filtered.length} תוצאות`;$('results').innerHTML=filtered.map((r,i)=>{const url=r.activation_url||'';return `<tr><td>${r.serial_number||i+1}</td><td dir="ltr">${esc(r.device_id||'')}</td><td dir="ltr">${mask(r.mobile_number||'')}</td><td><span class="badge ${statusClass(r.status||'')}">${esc(r.status||'')}</span></td><td><div class="url" dir="ltr"><span>${esc(url)}</span>${url?`<button class="copy" onclick="copyUrl('${encodeURIComponent(url)}')">העתק</button>`:''}</div></td></tr>`}).join('')||'<tr><td colspan="5" style="text-align:center;color:#697792">אין תוצאות תואמות</td></tr>'}
+function renderResults(){const en=uiLanguage==='en';const q=($('search').value||'').toLowerCase(),filter=$('statusFilter').value;const filtered=rows.filter(x=>JSON.stringify(x).toLowerCase().includes(q)&&(!filter||(x.status||'').toLowerCase().includes(filter)));$('resultCount').textContent=en?`${filtered.length} results`:`${filtered.length} תוצאות`;$('results').innerHTML=filtered.map((r,i)=>{const url=r.activation_url||'';return `<tr><td>${r.serial_number||i+1}</td><td dir="ltr">${esc(r.device_id||'')}</td><td dir="ltr">${mask(r.mobile_number||'')}</td><td><span class="badge ${statusClass(r.status||'')}">${esc(r.status||'')}</span></td><td><div class="url" dir="ltr"><span>${esc(url)}</span>${url?`<button class="copy" onclick="copyUrl('${encodeURIComponent(url)}')">${en?'Copy':'העתק'}</button>`:''}</div></td></tr>`}).join('')||`<tr><td colspan="5" style="text-align:center;color:#697792">${en?'No matching results':'אין תוצאות תואמות'}</td></tr>`}
 function mask(x){const d=x.replace(/\D/g,'');return d.length>4?'••••••'+d.slice(-4):x}function esc(x){return String(x).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}window.copyUrl=async x=>{await navigator.clipboard.writeText(decodeURIComponent(x))};
 $('startBtn').onclick=async()=>{const r=await api('/api/start','POST',{});const d=r.data;if(!d.ok)await sweetAlert(d.error||'שגיאה',{type:'error'});else{await getStatus();if(timer)clearInterval(timer);timer=setInterval(getStatus,1000)}};
 $('stopBtn').onclick=async()=>{await api('/api/stop','POST');await getStatus()};$('exportBtn').onclick=()=>location.href='/api/export';$('refreshBtn').onclick=async()=>{await Promise.all([getStatus(),loadResults()])};$('clearLogsBtn').onclick=()=>{$('logs').textContent=''};$('search').oninput=renderResults;$('statusFilter').onchange=renderResults;loadResults();getStatus();setInterval(loadResults,2500);setInterval(getStatus,1000);
@@ -109,20 +109,22 @@ function initMobileNav(){
 
 async function loadPanelManager(){
   try{
+    const en=uiLanguage==='en',removeLabel=en?'Remove panel':'הסר Panel';
     const panels=await jsonp('panels');
-    $('panelList').innerHTML=panels.map(panel=>`<li><span title="${esc(panel.value)}">${esc(panel.value)}</span><button aria-label="הסר Panel" onclick="removePanel(${panel.id})">×</button></li>`).join('')||'<li class="empty-panels">אין Panels עדיין</li>';
+    $('panelList').innerHTML=panels.map(panel=>`<li><span title="${esc(panel.value)}">${esc(panel.value)}</span><button aria-label="${removeLabel}" onclick="removePanel(${panel.id})">×</button></li>`).join('')||`<li class="empty-panels">${en?'No panels yet':'אין Panels עדיין'}</li>`;
     $('panelListCount').textContent=panels.length;
     const inactive=await jsonp('inactive-panels');
-    $('inactivePanelList').innerHTML=inactive.map(panel=>`<li><span title="${esc(panel.value)}">${esc(panel.value)}</span><small>${panel.reason==='duplicate'?'Duplicate':'Connection error'}</small></li>`).join('')||'<li class="empty-panels">אין Panels לא פעילים</li>';
+    $('inactivePanelList').innerHTML=inactive.map(panel=>`<li><span title="${esc(panel.value)}">${esc(panel.value)}</span><small>${panel.reason==='duplicate'?(en?'Duplicate':'כפילות'):(en?'Connection error':'שגיאת חיבור')}</small></li>`).join('')||`<li class="empty-panels">${en?'No inactive panels':'אין Panels לא פעילים'}</li>`;
     $('inactivePanelListCount').textContent=inactive.length;
     const review=await jsonp('review-panels');
-    $('reviewPanelList').innerHTML=review.map(panel=>`<li><span title="${esc(panel.value)}">${esc(panel.value)}</span><button aria-label="הסר Panel" onclick="removePanel(${panel.id})">×</button></li>`).join('')||'<li class="empty-panels">אין Panels לבדיקה</li>';
+    $('reviewPanelList').innerHTML=review.map(panel=>`<li><span title="${esc(panel.value)}">${esc(panel.value)}</span><button aria-label="${removeLabel}" onclick="removePanel(${panel.id})">×</button></li>`).join('')||`<li class="empty-panels">${en?'No panels to review':'אין Panels לבדיקה'}</li>`;
     $('reviewPanelListCount').textContent=review.length;
     $('panelValid').textContent=panels.length;$('panelInvalid').textContent=inactive.length;$('panelTotal').textContent=panels.length+inactive.length+review.length;
   }catch(e){}
 }
 window.removePanel=async line=>{
-  if(!await sweetConfirm('להסיר את ה-Panel הזה מהרשימה?',{type:'question',danger:true,confirmText:'הסר'}))return;
+  const en=uiLanguage==='en';
+  if(!await sweetConfirm(en?'Remove this panel from the list?':'להסיר את ה-Panel הזה מהרשימה?',{type:'question',danger:true,confirmText:en?'Remove':'הסר'}))return;
   const form=document.createElement('form');form.method='post';form.action=`/api/panels/${line}/remove`;form.target='panelActionFrame';document.body.append(form);form.submit();form.remove();setTimeout(loadPanelManager,350);
 };
 function initPanelManager(){
@@ -147,54 +149,63 @@ function initPanelManager(){
 const form=$('addPanelForm'),input=$('newPanel'),frame=document.createElement('iframe');frame.name='panelActionFrame';frame.hidden=true;document.body.append(frame);input.name='value';
   form.addEventListener('submit',async event=>{
     event.preventDefault();
+    const en=uiLanguage==='en';
     const value=input.value.trim();
     if(!value)return;
     const submitBtn=form.querySelector('button');submitBtn.disabled=true;
     try{
       const r=await api('/api/panels','POST',{value});
       if(r.data.ok){input.value='';loadPanelManager()}
-      else await sweetAlert(r.data.error||'לא ניתן להוסיף את ה-Panel',{type:'error'})
-    }catch(e){await sweetAlert('שגיאה בהוספת ה-Panel',{type:'error'})}
+      else await sweetAlert(r.data.error||(en?'Could not add the panel':'לא ניתן להוסיף את ה-Panel'),{type:'error'})
+    }catch(e){await sweetAlert(en?'Error adding the panel':'שגיאה בהוספת ה-Panel',{type:'error'})}
     submitBtn.disabled=false;
   });
   const runAudit=async(btn,url,idleLabel,onResult)=>{
     if(btn.disabled)return;
-    btn.disabled=true;btn.textContent='בודק...';
+    const en=uiLanguage==='en';
+    btn.disabled=true;btn.textContent=en?'Checking...':'בודק...';
     try{
       const r=await api(url,'POST',{});
       if(r.data.ok)await sweetAlert(onResult(r.data),{type:'success'});
-      else await sweetAlert(r.data.error||'הבדיקה נכשלה',{type:'error'})
-    }catch(e){await sweetAlert('שגיאה בביצוע הבדיקה',{type:'error'})}
+      else await sweetAlert(r.data.error||(en?'The check failed':'הבדיקה נכשלה'),{type:'error'})
+    }catch(e){await sweetAlert(en?'Error running the check':'שגיאה בביצוע הבדיקה',{type:'error'})}
     btn.disabled=false;btn.textContent=idleLabel;
     loadPanelManager();
   };
-  $('auditPanelsBtn').onclick=()=>runAudit($('auditPanelsBtn'),'/api/panels/audit','בדוק Panels',d=>d.moved?`הועברו ${d.moved} Panels ל"לא פעילים" (לא הגיבו לבדיקת החיבור).`:'כל ה-Panels הפעילים הגיבו לבדיקת החיבור, שום דבר לא הועבר.');
-  $('auditInactiveBtn').onclick=()=>runAudit($('auditInactiveBtn'),'/api/panels/audit-inactive','בדוק לא תקינים',d=>d.restored?`${d.restored} Panels חזרו להיות זמינים והוחזרו לרשימה הפעילה.`:'אף Panel לא הגיב מחדש - הרשימה הלא פעילה נשארה ללא שינוי.');
-  $('auditExtractBtn').onclick=()=>runAudit($('auditExtractBtn'),'/api/panels/audit-extract','בדוק חילוץ לינקים',d=>{
+  $('auditPanelsBtn').onclick=()=>{const en=uiLanguage==='en';runAudit($('auditPanelsBtn'),'/api/panels/audit',en?'Check panels':'בדוק Panels',d=>en?(d.moved?`Moved ${d.moved} panels to "Inactive" (they didn't respond to a connection check).`:'All active panels responded to the connection check, nothing was moved.'):(d.moved?`הועברו ${d.moved} Panels ל"לא פעילים" (לא הגיבו לבדיקת החיבור).`:'כל ה-Panels הפעילים הגיבו לבדיקת החיבור, שום דבר לא הועבר.'))};
+  $('auditInactiveBtn').onclick=()=>{const en=uiLanguage==='en';runAudit($('auditInactiveBtn'),'/api/panels/audit-inactive',en?'Check invalid':'בדוק לא תקינים',d=>en?(d.restored?`${d.restored} panels are available again and were restored to the active list.`:'No panel responded again - the inactive list is unchanged.'):(d.restored?`${d.restored} Panels חזרו להיות זמינים והוחזרו לרשימה הפעילה.`:'אף Panel לא הגיב מחדש - הרשימה הלא פעילה נשארה ללא שינוי.'))};
+  $('auditExtractBtn').onclick=()=>{const en=uiLanguage==='en';runAudit($('auditExtractBtn'),'/api/panels/audit-extract',en?'Check link extraction':'בדוק חילוץ לינקים',d=>{
     const parts=[];
+    if(en){
+      if(d.flagged)parts.push(`${d.flagged} panels were moved to "To review" (no Firebase address could be extracted from them)`);
+      if(d.restored)parts.push(`${d.restored} panels returned to the active list (an address can now be extracted from them)`);
+      return parts.length?parts.join('. ')+'.':'No changes found - all active panels are valid.';
+    }
     if(d.flagged)parts.push(`${d.flagged} Panels הועברו ל"לבדיקה" (לא ניתן לחלץ מהם כתובת Firebase)`);
     if(d.restored)parts.push(`${d.restored} Panels חזרו לרשימה הפעילה (עכשיו ניתן לחלץ מהם כתובת)`);
     return parts.length?parts.join('. ')+'.':'לא נמצאו שינויים - כל ה-Panels הפעילים תקינים.';
-  });
+  })};
   $('bulkAddBtn').onclick=async()=>{
+    const en=uiLanguage==='en';
     const btn=$('bulkAddBtn'),area=$('bulkPanelText'),text=area.value;
     if(!text.trim())return;
     if(btn.disabled)return;
-    btn.disabled=true;btn.textContent='מוסיף...';
+    btn.disabled=true;btn.textContent=en?'Adding...':'מוסיף...';
     try{
       const r=await api('/api/panels/bulk','POST',{text});
-      if(r.data.ok){area.value='';await sweetAlert(`נמצאו ${r.data.found} לינקים, נוספו ${r.data.added} חדשים (${r.data.skipped} כבר היו ברשימה)`,{type:'success'});loadPanelManager()}
-      else await sweetAlert(r.data.error||'לא נמצאו לינקים בטקסט',{type:'error'})
-    }catch(e){await sweetAlert('שגיאה בהוספת הלינקים',{type:'error'})}
-    btn.disabled=false;btn.textContent='חלץ והוסף לינקים';
+      if(r.data.ok){area.value='';await sweetAlert(en?`Found ${r.data.found} links, added ${r.data.added} new ones (${r.data.skipped} were already in the list)`:`נמצאו ${r.data.found} לינקים, נוספו ${r.data.added} חדשים (${r.data.skipped} כבר היו ברשימה)`,{type:'success'});loadPanelManager()}
+      else await sweetAlert(r.data.error||(en?'No links found in the text':'לא נמצאו לינקים בטקסט'),{type:'error'})
+    }catch(e){await sweetAlert(en?'Error adding the links':'שגיאה בהוספת הלינקים',{type:'error'})}
+    btn.disabled=false;btn.textContent=en?'Extract and add links':'חלץ והוסף לינקים';
   };
   loadPanelManager();
 }
 
 async function loadLinks(){
   try{
+    const en=uiLanguage==='en';
     const links=await jsonp('links');
-    $('linksList').innerHTML=links.map(l=>`<li><div><span class="link-url" dir="ltr" title="${esc(l.activation_url)}">${esc(l.activation_url)}</span><small dir="ltr">${esc(l.device_id||'')} · ${mask(l.mobile_number||'')}</small></div><button class="copy" onclick="copyUrl('${encodeURIComponent(l.activation_url)}')">העתק</button></li>`).join('')||'<li class="empty-panels">אין לינקים תקינים עדיין</li>';
+    $('linksList').innerHTML=links.map(l=>`<li><div><span class="link-url" dir="ltr" title="${esc(l.activation_url)}">${esc(l.activation_url)}</span><small dir="ltr">${esc(l.device_id||'')} · ${mask(l.mobile_number||'')}</small></div><button class="copy" onclick="copyUrl('${encodeURIComponent(l.activation_url)}')">${en?'Copy':'העתק'}</button></li>`).join('')||`<li class="empty-panels">${en?'No valid links yet':'אין לינקים תקינים עדיין'}</li>`;
     $('linksListCount').textContent=links.length;
   }catch(e){}
 }
@@ -244,12 +255,13 @@ function initAutoRunsManager(){
 
 async function loadDbTable(){
   try{
+    const en=uiLanguage==='en';
     const name=$('dbTableSelect').value;
     if(!name)return;
     const t=await jsonp('db-table-'+name);
     $('dbTableHead').innerHTML='<tr>'+t.columns.map(c=>`<th>${esc(c)}</th>`).join('')+'</tr>';
-    $('dbTableBody').innerHTML=t.rows.map(r=>'<tr>'+r.map(v=>{const x=v===null?'':String(v);return `<td dir="ltr" title="${esc(x)}">${esc(x)}</td>`}).join('')+'</tr>').join('')||`<tr><td colspan="${t.columns.length||1}" style="text-align:center;color:#697792">הטבלה ריקה</td></tr>`;
-    $('dbTableCount').textContent=t.total>t.rows.length?`${t.rows.length} מתוך ${t.total}`:t.total;
+    $('dbTableBody').innerHTML=t.rows.map(r=>'<tr>'+r.map(v=>{const x=v===null?'':String(v);return `<td dir="ltr" title="${esc(x)}">${esc(x)}</td>`}).join('')+'</tr>').join('')||`<tr><td colspan="${t.columns.length||1}" style="text-align:center;color:#697792">${en?'Table is empty':'הטבלה ריקה'}</td></tr>`;
+    $('dbTableCount').textContent=t.total>t.rows.length?(en?`${t.rows.length} of ${t.total}`:`${t.rows.length} מתוך ${t.total}`):t.total;
   }catch(e){}
 }
 async function loadDbTables(){
@@ -262,8 +274,10 @@ async function loadDbTables(){
 }
 async function loadDbBackend(){
   try{
+    const en=uiLanguage==='en';
     const b=await jsonp('db-backend');
-    $('dbBackendLabel').textContent=`מסד נתונים (${b.backend})`;
+    const backend=b.backend==='SQLite'?(en?'SQLite (local)':'SQLite מקומי'):b.backend;
+    $('dbBackendLabel').textContent=en?`Database (${backend})`:`מסד נתונים (${backend})`;
   }catch(e){}
 }
 function initDbViewer(){
@@ -289,42 +303,57 @@ function translatePage(lang){
   set('.card-head span',['Panels','Online Devices','Unique Numbers','Activation Links']);
   set('.card small',en?['Panels loaded for scanning','Available devices found','Unique candidates to check','Activation links found']:['פאנלים שנטענו לסריקה','מכשירים זמינים שנמצאו','מועמדים ייחודיים לבדיקה','קישורי הפעלה שהתגלו']);
   set('#resultsSection .panel-head p',[en?'Scan history is saved in the CSV file.':'היסטוריית תוצאות הסריקה נשמרת בקובץ ה־CSV.']);
-  set('#resultsSection th',en?['#','Device ID','Mobile','Status','Activation URL']:['#','Device ID','Mobile','Status','Activation URL']);
   set('#statusFilter option',en?['All statuses','Link found','Already active','Failed']:['כל הסטטוסים','קישור נמצא','כבר פעיל','נכשל']);
-  const count=$('resultCount');if(count)count.textContent=en?count.textContent.replace(/ תוצאות$/,' results'):count.textContent.replace(/ results$/,' תוצאות');
-  document.querySelectorAll('.copy').forEach(button=>button.textContent=en?'Copy':'העתק');
-  const empty=document.querySelector('#results td[colspan]');if(empty)empty.textContent=en?'No matching results':'אין תוצאות תואמות';
   set('#numbersSection h2',[en?'Scan pipeline':'תהליך הסריקה']);
+  set('.progress-wrap span',[en?'Overall progress':'התקדמות כוללת']);
   set('.step strong',en?['Load panels','Scan devices','Check numbers','Finish and save']:['טעינת Panels','סריקת מכשירים','בדיקת מספרים','סיום ושמירה']);
   set('.step small',en?['Collect available panels','Find online devices','Verify OTP and activate','Export results to file']:['איסוף פאנלים זמינים','איתור מכשירים פעילים','אימות OTP והפעלה','ייצוא התוצאות לקובץ']);
   set('.current-box span',[en?'Current device':'מכשיר נוכחי']);
   set('#logsSection .panel-head p',[en?'Scanner output updates automatically.':'פלט הסורק מתעדכן אוטומטית.']);
   const clear=$('clearLogsBtn');if(clear)clear.textContent=en?'Clear view':'נקה תצוגה';
-  const manager=document.querySelector('.panel-manager-head span');if(manager)manager.textContent=en?'My panels':'ה־Panels שלי';
+  const panelManagerHead=document.querySelector('.panel-manager-head span');if(panelManagerHead)panelManagerHead.textContent=en?'My panels':'ה־Panels שלי';
   const autoHead=document.querySelector('.autorun-manager-head>div>span');if(autoHead)autoHead.textContent=en?'Automatic runs':'הרצות אוטומטיות';
+  const linkHead=document.querySelector('.link-manager-head span');if(linkHead)linkHead.textContent=en?'Valid links':'לינקים תקינים';
   const panelInput=$('newPanel');if(panelInput){panelInput.placeholder=en?'New panel address':'כתובת Panel חדשה';panelInput.setAttribute('aria-label',panelInput.placeholder)}
   const addButton=document.querySelector('#addPanelForm button');if(addButton){addButton.title=en?'Add panel':'הוסף Panel';addButton.setAttribute('aria-label',addButton.title)}
+  set('.panel-stats span',en?['Total panels','Valid','Invalid']:['סה״כ Panels','תקינים','לא תקינים']);
+  const auditPanelsBtn=$('auditPanelsBtn');if(auditPanelsBtn&&!auditPanelsBtn.disabled)auditPanelsBtn.textContent=en?'Check panels':'בדוק Panels';
+  const auditInactiveBtn=$('auditInactiveBtn');if(auditInactiveBtn&&!auditInactiveBtn.disabled)auditInactiveBtn.textContent=en?'Check invalid':'בדוק לא תקינים';
+  const auditExtractBtn=$('auditExtractBtn');if(auditExtractBtn&&!auditExtractBtn.disabled)auditExtractBtn.textContent=en?'Check link extraction':'בדוק חילוץ לינקים';
+  set('.inactive-panel-head span',[en?'Inactive panels':'Panels לא פעילים']);
+  set('.review-panel-head span',[en?'Panels to review':'Panels לבדיקה']);
+  const reviewNote=document.querySelector('.review-panel-note');if(reviewNote)reviewNote.textContent=en?"Links we couldn't extract any Firebase address from at all - homepage links, Telegram invites, shortlinks, etc. They don't enter the scan.":'לינקים שלא הצלחנו לחלץ מהם כתובת Firebase בכלל - כתובות דף בית, לינקים לטלגרם, קיצורי URL וכו׳. הם לא נכנסים לסריקה.';
+  const bulkText=$('bulkPanelText');if(bulkText){bulkText.placeholder=en?'Paste text or a document containing links inside plain text - only the links will be extracted and added':'הדבק כאן טקסט או מסמך שמכיל לינקים בתוך טקסט רגיל - יחולצו ויתווספו רק הלינקים';bulkText.setAttribute('aria-label',en?'Paste text with links':'הדבקת טקסט עם לינקים')}
+  const bulkAddBtn=$('bulkAddBtn');if(bulkAddBtn&&!bulkAddBtn.disabled)bulkAddBtn.textContent=en?'Extract and add links':'חלץ והוסף לינקים';
   const side=document.querySelector('.side-note div');if(side&&side.firstChild)side.firstChild.nodeValue=en?'Local scanner':'סורק מקומי';
-  document.querySelectorAll('.step em').forEach(element=>{if(en)element.textContent=element.classList.contains('done')?'Done':element.classList.contains('active')?'Active':'Waiting'});
+  document.querySelectorAll('.step em').forEach(element=>{element.textContent=element.classList.contains('done')?(en?'Done':'הושלם'):element.classList.contains('active')?(en?'Active':'פעיל'):(en?'Waiting':'ממתין')});
+  const live=$('live');if(live)live.textContent=live.classList.contains('on')?(en?'Active':'פעיל'):(en?'Inactive':'לא פעיל');
+  renderResults();
+  if($('panelList'))loadPanelManager();
+  if($('linksList'))loadLinks();
+  if($('dbBackendLabel'))loadDbBackend();
+  if($('dbTableSelect')&&$('dbTableSelect').value)loadDbTable();
   if($('autoRunsManageSection'))loadAutoRuns();
 }
 
+const VIEW_TITLES={he:{dashboard:['בקרה וניהול סריקה','מעקב אחר פאנלים, מכשירים ותוצאות הפעלה בזמן אמת.'],results:['תוצאות אחרונות','חיפוש, סינון וייצוא של תוצאות הסריקה.'],logs:['יומן פעילות חי','פלט הסורק בזמן אמת.'],panels:['ניהול Panels','הוספה, צפייה והסרה של Panels לסריקה.'],links:['לינקים תקינים','כל קישורי ההפעלה שנמצאו, עם העתקה מהירה.'],db:['מסד נתונים','צפייה בטבלאות מסד הנתונים של הסורק.'],autoruns:['הרצות אוטומטיות','יומן כל ההרצות האוטומטיות של הסורק.']},en:{dashboard:['Scanner control center','Monitor panels, devices, and activation results in real time.'],results:['Latest results','Search, filter, and export scan results.'],logs:['Live activity log','Scanner output in real time.'],panels:['Manage panels','Add, review, and remove panels for scanning.'],links:['Valid links','All activation links found, with quick copy.'],db:['Database','Browse the scanner SQLite tables.'],autoruns:['Automatic runs','Log of every automatic scan trigger.']}};
+let activeView='dashboard';
+
 function initLanguageToggle(){
   const translations={
-    he:{title:'בקרה וניהול סריקה',subtitle:'מעקב אחר פאנלים, מכשירים ותוצאות הפעלה בזמן אמת.',refresh:'רענן',export:'ייצוא קישורי הפעלה',start:'התחל סריקה',stop:'עצור',results:'תוצאות אחרונות',logs:'יומן פעילות חי',search:'חיפוש מספר, מכשיר או סטטוס...',panelPlaceholder:'כתובת Panel חדשה',language:'English'},
-    en:{title:'Scanner control center',subtitle:'Monitor panels, devices, and activation results in real time.',refresh:'Refresh',export:'Export activation links',start:'Start scan',stop:'Stop',results:'Latest results',logs:'Live activity log',search:'Search number, device, or status...',panelPlaceholder:'New panel address',language:'עברית'}
+    he:{refresh:'רענן',export:'ייצוא קישורי הפעלה',start:'התחל סריקה',stop:'עצור',results:'תוצאות אחרונות',logs:'יומן פעילות חי',search:'חיפוש מספר, מכשיר או סטטוס...',panelPlaceholder:'כתובת Panel חדשה',language:'English'},
+    en:{refresh:'Refresh',export:'Export activation links',start:'Start scan',stop:'Stop',results:'Latest results',logs:'Live activity log',search:'Search number, device, or status...',panelPlaceholder:'New panel address',language:'עברית'}
   };
   const button=document.createElement('button');button.className='button secondary language-toggle';document.querySelector('.actions').prepend(button);
-  const apply=lang=>{const t=translations[lang];document.documentElement.lang=lang;document.documentElement.dir=lang==='he'?'rtl':'ltr';document.querySelector('.header h1').textContent=t.title;document.querySelector('.header p').textContent=t.subtitle;$('refreshBtn').lastElementChild.textContent=t.refresh;$('exportBtn').lastElementChild.textContent=t.export;$('startBtn').lastElementChild.textContent=t.start;$('stopBtn').lastElementChild.textContent=t.stop;document.querySelector('#resultsSection h2').textContent=t.results;document.querySelector('#logsSection h2').textContent=t.logs;$('search').placeholder=t.search;$('newPanel').placeholder=t.panelPlaceholder;button.textContent='◉ '+t.language;button.onclick=()=>{const next=lang==='he'?'en':'he';localStorage.setItem('scanner-language',next);apply(next)};};
+  const apply=lang=>{const t=translations[lang],copy=VIEW_TITLES[lang][activeView];document.documentElement.lang=lang;document.documentElement.dir=lang==='he'?'rtl':'ltr';document.querySelector('.header h1').textContent=copy[0];document.querySelector('.header p').textContent=copy[1];$('refreshBtn').lastElementChild.textContent=t.refresh;$('exportBtn').lastElementChild.textContent=t.export;$('startBtn').lastElementChild.textContent=t.start;$('stopBtn').lastElementChild.textContent=t.stop;document.querySelector('#resultsSection h2').textContent=t.results;document.querySelector('#logsSection h2').textContent=t.logs;$('search').placeholder=t.search;$('newPanel').placeholder=t.panelPlaceholder;button.textContent='◉ '+t.language;button.onclick=()=>{const next=lang==='he'?'en':'he';localStorage.setItem('scanner-language',next);apply(next)};};
   new MutationObserver(()=>translatePage(document.documentElement.lang==='en'?'en':'he')).observe(document.documentElement,{attributes:true,attributeFilter:['lang']});
   const initialLanguage=localStorage.getItem('scanner-language')||'he';apply(initialLanguage);translatePage(initialLanguage);
 }
 
 function initViews(){
   const header=document.querySelector('.header'),cards=$('panelsSection'),grid=document.querySelector('.grid'),pipeline=$('numbersSection'),results=$('resultsSection'),logs=$('logsSection'),panels=$('panelsManageSection'),links=$('linksManageSection'),db=$('dbManageSection'),autoruns=$('autoRunsManageSection');
-  const titles={he:{dashboard:['בקרה וניהול סריקה','מעקב אחר פאנלים, מכשירים ותוצאות הפעלה בזמן אמת.'],results:['תוצאות אחרונות','חיפוש, סינון וייצוא של תוצאות הסריקה.'],logs:['יומן פעילות חי','פלט הסורק בזמן אמת.'],panels:['ניהול Panels','הוספה, צפייה והסרה של Panels לסריקה.'],links:['לינקים תקינים','כל קישורי ההפעלה שנמצאו, עם העתקה מהירה.'],db:['מסד נתונים','צפייה בטבלאות מסד הנתונים של הסורק.'],autoruns:['הרצות אוטומטיות','יומן כל ההרצות האוטומטיות של הסורק.']},en:{dashboard:['Scanner control center','Monitor panels, devices, and activation results in real time.'],results:['Latest results','Search, filter, and export scan results.'],logs:['Live activity log','Scanner output in real time.'],panels:['Manage panels','Add, review, and remove panels for scanning.'],links:['Valid links','All activation links found, with quick copy.'],db:['Database','Browse the scanner SQLite tables.'],autoruns:['Automatic runs','Log of every automatic scan trigger.']}};
   const viewForLink=link=>link.dataset.target==='resultsSection'?'results':link.getAttribute('href')==='#panelsManageSection'?'panels':link.getAttribute('href')==='#linksManageSection'?'links':link.getAttribute('href')==='#dbManageSection'?'db':link.getAttribute('href')==='#autoRunsManageSection'?'autoruns':'dashboard';
-  const show=view=>{const isDashboard=view==='dashboard';header.hidden=false;cards.hidden=!isDashboard;grid.hidden=!(isDashboard||view==='results');pipeline.hidden=!isDashboard;results.hidden=view!=='results';logs.hidden=!isDashboard;panels.hidden=view!=='panels';links.hidden=view!=='links';links.classList.toggle('panels-page',view==='links');db.hidden=view!=='db';db.classList.toggle('panels-page',view==='db');if(view==='db')loadDbTables();autoruns.hidden=view!=='autoruns';autoruns.classList.toggle('panels-page',view==='autoruns');if(view==='autoruns')loadAutoRuns();const copy=titles[uiLanguage][view];header.querySelector('h1').textContent=copy[0];header.querySelector('p').textContent=copy[1];document.querySelectorAll('.sidebar nav a').forEach(link=>link.classList.toggle('active',viewForLink(link)===view));window.scrollTo({top:0,behavior:'smooth'});};
+  const show=view=>{activeView=view;const isDashboard=view==='dashboard';header.hidden=false;cards.hidden=!isDashboard;grid.hidden=!(isDashboard||view==='results');pipeline.hidden=!isDashboard;results.hidden=view!=='results';logs.hidden=!isDashboard;panels.hidden=view!=='panels';links.hidden=view!=='links';links.classList.toggle('panels-page',view==='links');db.hidden=view!=='db';db.classList.toggle('panels-page',view==='db');if(view==='db')loadDbTables();autoruns.hidden=view!=='autoruns';autoruns.classList.toggle('panels-page',view==='autoruns');if(view==='autoruns')loadAutoRuns();const copy=VIEW_TITLES[uiLanguage][view];header.querySelector('h1').textContent=copy[0];header.querySelector('p').textContent=copy[1];document.querySelectorAll('.sidebar nav a').forEach(link=>link.classList.toggle('active',viewForLink(link)===view));window.scrollTo({top:0,behavior:'smooth'});};
   document.querySelectorAll('.sidebar nav a').forEach(link=>link.addEventListener('click',event=>{event.preventDefault();show(viewForLink(link))}));
   show('dashboard');
 }

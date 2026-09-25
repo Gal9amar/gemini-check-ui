@@ -722,7 +722,7 @@ def table_count(db, name: str) -> int:
 
 @app.get("/api/db/backend")
 def api_db_backend():
-    return jsonify({"backend": "Turso" if USE_TURSO else "SQLite מקומי"})
+    return jsonify({"backend": "Turso" if USE_TURSO else "SQLite"})
 
 
 @app.get("/api/db/tables")
