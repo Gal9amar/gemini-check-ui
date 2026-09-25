@@ -23,8 +23,10 @@ TURSO_AUTH_TOKEN=your-token
 ## הרשאת גישה
 שתי שיטות הגנה, לפי סדר עדיפות:
 
-1. **התחברות בקוד למייל (מומלץ)** — אם מוגדרים `GMAIL_ADDRESS` ו-`GMAIL_APP_PASSWORD`, מסך ההתחברות לא מציג ולא מבקש כתובת מייל בכלל: לוחצים "שליחת קוד", מקבלים קוד בן 6 ספרות לתיבה שב-`GMAIL_ADDRESS`, מזינים אותו, ומתחברים. הקוד בתוקף ל-10 דקות, ומוגבל ל-5 ניסיונות. `GMAIL_APP_PASSWORD` הוא **App Password** בן 16 תווים (Google Account → Security → App Passwords — דורש אימות דו-שלבי מופעל בחשבון), **לא** הסיסמה הרגילה שלך.
-2. **Basic Auth** — אם `GMAIL_ADDRESS`/`GMAIL_APP_PASSWORD` לא מוגדרים אבל `APP_PASSWORD` כן, חוזר להתנהגות הישנה (שם משתמש מ-`APP_USERNAME`, ברירת מחדל `admin`).
+1. **התחברות בקוד למייל (מומלץ)** — אם מוגדרים `GMAIL_ADDRESS` ו-`RESEND_API_KEY`, מסך ההתחברות לא מציג ולא מבקש כתובת מייל בכלל: לוחצים "שליחת קוד", מקבלים קוד בן 6 ספרות לתיבה שב-`GMAIL_ADDRESS`, מזינים אותו, ומתחברים. הקוד בתוקף ל-10 דקות, ומוגבל ל-5 ניסיונות.
+
+   השליחה עוברת דרך [Resend](https://resend.com) (API מעל HTTPS), **לא** SMTP ישיר — כי שירותי אחסון בחינם כמו Render חוסמים לעיתים קרובות פורטי SMTP יוצאים כדי למנוע ספאם, בעוד ש-HTTPS אף פעם לא חסום. `RESEND_API_KEY` נוצר בחינם ב-resend.com; ברירת המחדל לשולח (`RESEND_FROM_ADDRESS`) היא `onboarding@resend.dev`, שעובדת בלי אימות דומיין כל עוד שולחים רק לכתובת המייל של בעל החשבון עצמו (`GMAIL_ADDRESS`).
+2. **Basic Auth** — אם `GMAIL_ADDRESS`/`RESEND_API_KEY` לא מוגדרים אבל `APP_PASSWORD` כן, חוזר להתנהגות הישנה (שם משתמש מ-`APP_USERNAME`, ברירת מחדל `admin`).
 
 בלי אף אחד מהם הממשק פתוח לגמרי — מתאים לפיתוח מקומי בלבד. **חובה להגדיר אחת מהשיטות לפני חשיפת השרת לאינטרנט.**
 
@@ -45,6 +47,6 @@ py app.py
 3. Start Command: `gunicorn app:app --workers 1 --bind 0.0.0.0:$PORT`
 4. משתני סביבה נדרשים (בממשק Render, לא בקובץ):
    - `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` — כדי שהנתונים ישרדו בין דיפלויים.
-   - `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD` (או לחלופין `APP_USERNAME`/`APP_PASSWORD`) — כדי להגן על הממשק.
+   - `GMAIL_ADDRESS`, `RESEND_API_KEY` (או לחלופין `APP_USERNAME`/`APP_PASSWORD`) — כדי להגן על הממשק.
    - `SECRET_KEY` — כדי שההתחברות לא תתנתק בכל דיפלוי.
 5. האפליקציה מאזינה אוטומטית לפורט שרנדר מזריקה (`$PORT`), אין צורך בהגדרה נוספת.

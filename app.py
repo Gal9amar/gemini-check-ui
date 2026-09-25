@@ -6,19 +6,18 @@ import json
 import os
 import random
 import re
-import smtplib
-import ssl
 import sqlite3
 import subprocess
 import sys
 import threading
 import time
 from datetime import datetime, timezone
-from email.mime.text import MIMEText
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 import importlib
+
+import requests
 
 # Import dynamically so environments that use a nonstandard interpreter or
 # virtual environment do not report Flask's static import as unresolved.
@@ -75,14 +74,20 @@ app.secret_key = os.environ.get("SECRET_KEY") or os.urandom(32)
 APP_USERNAME = os.environ.get("APP_USERNAME", "admin")
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "").strip()
 
-# Email one-time-code login: send a 6-digit code to your own Gmail inbox via
-# SMTP (an "App Password", not your real Gmail password) and require it to
-# unlock a session. Takes priority over Basic Auth when configured. Neither
-# the login page nor the API ever show or ask for the email address - it's
-# fixed to GMAIL_ADDRESS.
-GMAIL_ADDRESS = os.environ.get("GMAIL_ADDRESS", "").strip()
-GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "").strip()
-OTP_LOGIN_ENABLED = bool(GMAIL_ADDRESS and GMAIL_APP_PASSWORD)
+# Email one-time-code login: send a 6-digit code to your own inbox and
+# require it to unlock a session. Takes priority over Basic Auth when
+# configured. Neither the login page nor the API ever show or ask for the
+# email address - it's fixed to LOGIN_EMAIL.
+#
+# Sent via the Resend HTTP API (https://resend.com), not raw SMTP: Render
+# (like many free hosts) blocks outbound SMTP ports to stop spam, but plain
+# HTTPS is never blocked. RESEND_FROM_ADDRESS defaults to Resend's shared
+# "onboarding@resend.dev" sender, which works with no domain setup as long
+# as it's only sending to the account owner's own verified address.
+LOGIN_EMAIL = os.environ.get("GMAIL_ADDRESS", "").strip()
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "").strip()
+RESEND_FROM_ADDRESS = os.environ.get("RESEND_FROM_ADDRESS", "onboarding@resend.dev").strip()
+OTP_LOGIN_ENABLED = bool(LOGIN_EMAIL and RESEND_API_KEY)
 OTP_TTL_SECONDS = 600
 OTP_MAX_ATTEMPTS = 5
 
@@ -92,13 +97,19 @@ _pending_otp: dict = {}
 
 def send_login_code():
     code = f"{random.randint(0, 999999):06d}"
-    message = MIMEText(f"קוד ההתחברות שלך ל-Gemini Scanner: {code}\nהקוד בתוקף ל-10 דקות.")
-    message["Subject"] = "קוד התחברות - Gemini Scanner"
-    message["From"] = GMAIL_ADDRESS
-    message["To"] = GMAIL_ADDRESS
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15, context=ssl.create_default_context()) as server:
-        server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
-        server.send_message(message)
+    response = requests.post(
+        "https://api.resend.com/emails",
+        headers={"Authorization": f"Bearer {RESEND_API_KEY}"},
+        json={
+            "from": RESEND_FROM_ADDRESS,
+            "to": LOGIN_EMAIL,
+            "subject": "קוד התחברות - Gemini Scanner",
+            "text": f"קוד ההתחברות שלך ל-Gemini Scanner: {code}\nהקוד בתוקף ל-10 דקות.",
+        },
+        timeout=15,
+    )
+    if not response.ok:
+        raise RuntimeError(f"Resend {response.status_code}: {response.text[:200]}")
     # Only becomes verifiable once the email genuinely went out - a failed
     # send must not leave a code pending that the user can never see.
     with _otp_lock:
