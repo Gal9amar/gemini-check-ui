@@ -63,7 +63,6 @@ if USE_TURSO:
     import importlib
 
     libsql_client = importlib.import_module("libsql_client")
-    _turso_client = libsql_client.create_client_sync(url=TURSO_DATABASE_URL, auth_token=TURSO_AUTH_TOKEN or None)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY") or os.urandom(32)
@@ -270,10 +269,21 @@ class _TursoCursor:
 
 
 class TursoConnection:
-    """Thin sqlite3.Connection-like wrapper around a shared libsql_client.ClientSync."""
+    """
+    Thin sqlite3.Connection-like wrapper around a libsql_client.ClientSync.
 
-    def __init__(self, client):
-        self._client = client
+    A fresh client (with its own background thread and event loop) is
+    created per request and closed when done - NOT shared as a long-lived
+    singleton. A shared client's single background thread can wedge if any
+    one request against it ever hangs or breaks, which then silently jams
+    every future request forever (no crash, no restart, just permanent
+    502s) since they all queue up behind the same stuck executor.
+    """
+
+    def __init__(self):
+        self._client = libsql_client.create_client_sync(
+            url=TURSO_DATABASE_URL, auth_token=TURSO_AUTH_TOKEN or None
+        )
 
     def execute(self, sql, params=()):
         return _TursoCursor(self._client.execute(sql, list(params) if params else None))
@@ -288,18 +298,18 @@ class TursoConnection:
         pass  # every statement above is already durable on the server once it returns
 
     def close(self):
-        pass  # the underlying client is a shared, long-lived singleton - never close it here
+        self._client.close()
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc, tb):
-        pass
+        self.close()
 
 
 def get_db():
     if USE_TURSO:
-        return TursoConnection(_turso_client)
+        return TursoConnection()
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
