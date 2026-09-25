@@ -363,13 +363,41 @@ def init_db():
         db.execute("""
             CREATE TABLE IF NOT EXISTS auto_runs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ran_at TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
                 status TEXT NOT NULL,
-                message TEXT
+                message TEXT,
+                panels INTEGER,
+                devices INTEGER,
+                numbers INTEGER,
+                links INTEGER,
+                statuses_json TEXT
             )
         """)
+        migrate_auto_runs_table(db)
         db.commit()
     migrate_legacy_files()
+
+
+def migrate_auto_runs_table(db):
+    """Upgrade an auto_runs table created by an earlier version of this file
+    (which only had ran_at/status/message) to the current column set."""
+    columns = {row["name"] for row in db.execute("PRAGMA table_info(auto_runs)")}
+    if "started_at" not in columns:
+        if "ran_at" in columns:
+            db.execute("ALTER TABLE auto_runs RENAME COLUMN ran_at TO started_at")
+        else:
+            db.execute("ALTER TABLE auto_runs ADD COLUMN started_at TEXT")
+    for name, coltype in (
+        ("finished_at", "TEXT"),
+        ("panels", "INTEGER"),
+        ("devices", "INTEGER"),
+        ("numbers", "INTEGER"),
+        ("links", "INTEGER"),
+        ("statuses_json", "TEXT"),
+    ):
+        if name not in columns:
+            db.execute(f"ALTER TABLE auto_runs ADD COLUMN {name} {coltype}")
 
 
 def migrate_legacy_files():
@@ -465,17 +493,45 @@ def write_active_panels_feed(db):
 MAX_AUTO_RUNS = 500
 
 
-def record_auto_run(ran_at: str, status: str, message: str | None = None):
-    """Persist one automatic-scan trigger so the sidebar can show a history of runs."""
+def start_auto_run(started_at: str) -> int:
+    """Record that an automatic scan is about to be triggered. Returns the new row's id
+    so the scan's outcome can be filled in later via finish_auto_run()."""
     with get_db() as db:
-        db.execute(
-            "INSERT INTO auto_runs (ran_at, status, message) VALUES (?, ?, ?)",
-            (ran_at, status, message),
+        cur = db.execute(
+            "INSERT INTO auto_runs (started_at, status) VALUES (?, 'running')",
+            (started_at,),
         )
+        run_id = cur.lastrowid
         db.execute(
             "DELETE FROM auto_runs WHERE id NOT IN "
             "(SELECT id FROM auto_runs ORDER BY id DESC LIMIT ?)",
             (MAX_AUTO_RUNS,),
+        )
+        db.commit()
+    return run_id
+
+
+def finish_auto_run(
+    run_id: int,
+    finished_at: str,
+    status: str,
+    message: str | None = None,
+    panels: int | None = None,
+    devices: int | None = None,
+    numbers: int | None = None,
+    links: int | None = None,
+    statuses: dict | None = None,
+):
+    """Fill in an automatic run's outcome - either right away (it never started) or
+    once the scan subprocess exits (full stats)."""
+    with get_db() as db:
+        db.execute(
+            "UPDATE auto_runs SET finished_at = ?, status = ?, message = ?, panels = ?, "
+            "devices = ?, numbers = ?, links = ?, statuses_json = ? WHERE id = ?",
+            (
+                finished_at, status, message, panels, devices, numbers, links,
+                json.dumps(statuses) if statuses else None, run_id,
+            ),
         )
         db.commit()
 
@@ -522,7 +578,7 @@ def log(line: str):
             state["processed"] += 1
 
 
-def reader(p, before_id=0):
+def reader(p, before_id=0, auto_run_id=None):
     global proc
     try:
         for raw in iter(p.stdout.readline, ""):
@@ -536,6 +592,11 @@ def reader(p, before_id=0):
             if state["step"] != "Completed":
                 state["step"] = "Stopped" if code != 0 else "Completed"
             state["progress"] = 100 if code == 0 else state["progress"]
+            run_snapshot = {
+                "panels": state["panels"], "devices": state["devices"],
+                "numbers": state["numbers"], "links": state["links"],
+                "statuses": dict(state["statuses"]),
+            }
         proc = None
         with get_db() as db:
             sync_results_from_csv(db)
@@ -544,6 +605,20 @@ def reader(p, before_id=0):
                 "WHERE id > ? AND TRIM(COALESCE(activation_url, '')) != ''",
                 (before_id,),
             ).fetchall()
+        if auto_run_id is not None:
+            try:
+                finish_auto_run(
+                    auto_run_id,
+                    datetime.now(timezone.utc).isoformat(),
+                    "completed" if code == 0 else "stopped",
+                    panels=run_snapshot["panels"],
+                    devices=run_snapshot["devices"],
+                    numbers=run_snapshot["numbers"],
+                    links=run_snapshot["links"],
+                    statuses=run_snapshot["statuses"],
+                )
+            except Exception as e:
+                log(f"Failed to record automatic run completion: {e}")
         if new_links and RESEND_API_KEY and LOGIN_EMAIL:
             try:
                 notify_new_links(new_links)
@@ -616,11 +691,18 @@ def api_links():
 def api_auto_runs():
     with get_db() as db:
         rows = db.execute(
-            "SELECT ran_at, status, message FROM auto_runs ORDER BY id DESC LIMIT 200"
+            "SELECT started_at, finished_at, status, message, panels, devices, numbers, links, statuses_json "
+            "FROM auto_runs ORDER BY id DESC LIMIT 200"
         ).fetchall()
+    runs = []
+    for row in rows:
+        run = dict(row)
+        statuses_json = run.pop("statuses_json", None)
+        run["statuses"] = json.loads(statuses_json) if statuses_json else None
+        runs.append(run)
     return jsonify({
         "interval_minutes": AUTO_SCAN_INTERVAL_MINUTES,
-        "runs": [dict(row) for row in rows],
+        "runs": runs,
     })
 
 
@@ -867,7 +949,7 @@ def remove_panel_form(panel_id: int):
     return delete_panel(panel_id)
 
 
-def start_scan(extra_args: dict | None = None):
+def start_scan(extra_args: dict | None = None, auto_run_id: int | None = None):
     """Launch a scan. Shared by the /api/start route and the automatic scheduler.
     Returns (ok, error, status_code)."""
     global proc
@@ -903,7 +985,7 @@ def start_scan(extra_args: dict | None = None):
         errors="replace",
         bufsize=1,
     )
-    threading.Thread(target=reader, args=(proc, before_id), daemon=True).start()
+    threading.Thread(target=reader, args=(proc, before_id, auto_run_id), daemon=True).start()
     return True, None, 200
 
 
@@ -957,17 +1039,26 @@ def auto_scan_loop():
     interval_seconds = AUTO_SCAN_INTERVAL_MINUTES * 60
     while True:
         time.sleep(interval_seconds)
-        ran_at = datetime.now(timezone.utc).isoformat()
+        started_at = datetime.now(timezone.utc).isoformat()
         try:
-            ok, error, _ = start_scan()
-            status, message = ("started", None) if ok else ("skipped", error)
-        except Exception as e:
-            ok, status, message = False, "error", str(e)
-            log(f"Scheduled scan failed to start: {e}")
-        try:
-            record_auto_run(ran_at, status, message)
+            run_id = start_auto_run(started_at)
         except Exception as e:
             log(f"Failed to record automatic run: {e}")
+            run_id = None
+        try:
+            ok, error, _ = start_scan(auto_run_id=run_id)
+        except Exception as e:
+            ok, error = False, str(e)
+            log(f"Scheduled scan failed to start: {e}")
+        # start_scan() only launches the subprocess - reader() finishes the
+        # run record once it exits. Here we only need to close out the record
+        # for a run that never made it that far (already running, no active
+        # panels, scanner.py missing, or an unexpected exception above).
+        if not ok and run_id is not None:
+            try:
+                finish_auto_run(run_id, datetime.now(timezone.utc).isoformat(), "skipped", message=error)
+            except Exception as e:
+                log(f"Failed to record automatic run outcome: {e}")
 
 
 init_db()
