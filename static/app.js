@@ -48,7 +48,16 @@ function sweetConfirm(message,opts={}){
 }
 let __redirecting=false;
 function goToLogin(){if(__redirecting)return;__redirecting=true;location.href='/login'}
-function api(url,method='GET',body=null){if(__redirecting)return new Promise(()=>{});return new Promise((resolve,reject)=>{const request=new XMLHttpRequest();request.open(method,url,true);request.setRequestHeader('Accept','application/json');if(body)request.setRequestHeader('Content-Type','application/json');request.onload=()=>{if(request.status===401&&!location.pathname.startsWith('/login')){goToLogin();return}try{resolve({ok:request.status>=200&&request.status<300,status:request.status,data:JSON.parse(request.responseText||'{}')})}catch(error){reject(error)}};request.onerror=()=>reject(new Error('Network request failed'));request.send(body?JSON.stringify(body):null)})}
+async function api(url,method='GET',body=null){
+  if(__redirecting)return new Promise(()=>{});
+  const headers={'Accept':'application/json'};
+  if(body)headers['Content-Type']='application/json';
+  const response=await fetch(url,{method,headers,body:body?JSON.stringify(body):null});
+  if(response.status===401&&!location.pathname.startsWith('/login')){goToLogin();return new Promise(()=>{})}
+  let data={};
+  try{data=await response.json()}catch(e){}
+  return{ok:response.ok,status:response.status,data};
+}
 function jsonp(kind){if(__redirecting)return new Promise(()=>{});return new Promise((resolve,reject)=>{const callback=`dashboardData${Date.now()}${Math.floor(Math.random()*10000)}`,script=document.createElement('script'),timer=setTimeout(()=>cleanup(new Error('Data request timed out')),8000);const cleanup=error=>{clearTimeout(timer);delete window[callback];script.remove();error?reject(error):null};window[callback]=data=>{cleanup();if(data&&data.__unauthenticated__){goToLogin();return}resolve(data)};script.onerror=()=>cleanup(new Error('Data request failed'));script.src=`/api/dashboard/${kind}?callback=${callback}`;document.head.append(script)})}
 async function getStatus(){try{renderStatus(await jsonp('status'));translatePage(uiLanguage)}catch(e){}}
 function renderStatus(s){$('panels').textContent=s.panels??0;$('devices').textContent=s.devices??0;$('numbers').textContent=s.numbers??0;$('links').textContent=s.links??0;$('percent').textContent=(s.progress??0)+'%';$('bar').style.width=(s.progress??0)+'%';$('currentStep').textContent=s.step||'ממתין להתחלה';$('device').textContent=s.current_device||'—';$('mobile').textContent=s.current_number||'—';$('logs').textContent=(s.logs||[]).join('\n');$('logs').scrollTop=$('logs').scrollHeight;$('startBtn').disabled=!!s.running;$('stopBtn').disabled=!s.running;$('live').textContent=s.running?'פעיל':'לא פעיל';$('live').classList.toggle('on',!!s.running);const order=['Loading Panels','Scanning Messages','OTP / Activation','Completed'];document.querySelectorAll('.step').forEach((el,i)=>{el.classList.remove('active','done');const x=order[i];if(s.step===x)el.classList.add('active');if(order.indexOf(s.step)>i||s.step==='Completed')el.classList.add('done');el.querySelector('em').textContent=el.classList.contains('done')?'הושלם':el.classList.contains('active')?'פעיל':'ממתין';});}
