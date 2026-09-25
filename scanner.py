@@ -664,13 +664,16 @@ def get_activation(session: requests.Session) -> tuple[str, str]:
         activate_response = session.get(ACTIVATE_URL, headers=offer_headers, timeout=20)
         activate_data = response_json(activate_response)
         if already_active(api_message(activate_data)):
-            return "already_active", ""
+            # "Already active" can still carry the (already-used) activation
+            # link in the same response - grab it if it's there instead of
+            # throwing it away, so it's still visible in the results/links.
+            return "already_active", activation_url(str(activate_data.get("redirectionURL", "")))
         if not activate_response.ok or str(activate_data.get("errorCode", "200")) != "200":
             return "activation_api_failed", ""
         google_response = session.get(GOOGLE_URL, headers=offer_headers, timeout=20)
         google_data = response_json(google_response)
         if already_active(api_message(google_data)):
-            return "already_active", ""
+            return "already_active", activation_url(str(google_data.get("redirectionURL", "")))
         url = activation_url(str(google_data.get("redirectionURL", "")))
         if not url:
             return "no_activation_url", ""
