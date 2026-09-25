@@ -201,6 +201,33 @@ function initLinksManager(){
   setInterval(loadLinks,3000);
 }
 
+async function loadAutoRuns(){
+  try{
+    const d=await jsonp('auto-runs'),runs=d.runs||[];
+    const label=$('autoRunsIntervalLabel');
+    if(label)label.textContent=uiLanguage==='en'?(d.interval_minutes?`Runs automatically every ${d.interval_minutes} minutes`:'Automatic runs are disabled'):(d.interval_minutes?`רץ אוטומטית כל ${d.interval_minutes} דקות`:'ההרצה האוטומטית כבויה');
+    $('autoRunsList').innerHTML=runs.map(r=>{
+      const cls=r.status==='started'?'success':r.status==='skipped'?'warn':'error';
+      const labels=uiLanguage==='en'?{started:'Started',skipped:'Skipped',error:'Error'}:{started:'הופעל',skipped:'דולג',error:'שגיאה'};
+      const time=new Date(r.ran_at).toLocaleString(uiLanguage==='en'?'en-GB':'he-IL');
+      return `<li><div><b dir="ltr">${esc(time)}</b>${r.message?`<small>${esc(r.message)}</small>`:''}</div><span class="badge ${cls}">${labels[r.status]||esc(r.status)}</span></li>`;
+    }).join('')||`<li class="empty-panels">${uiLanguage==='en'?'No automatic runs yet':'עדיין לא בוצעו הרצות אוטומטיות'}</li>`;
+    $('autoRunsListCount').textContent=runs.length;
+  }catch(e){}
+}
+function initAutoRunsManager(){
+  const style=document.createElement('style');
+  style.textContent='.autorun-manager{margin:0 0 18px;padding:0;border:1px solid #3d4d6f;border-radius:16px;background:#111a2d;overflow:hidden}.autorun-manager-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:15px 18px;color:#e8eeff;font-size:14px;font-weight:700;border-bottom:1px solid #2a3854}.autorun-manager-head>div{display:flex;flex-direction:column;gap:3px}.autorun-manager-head small{color:#7e8ba5;font-size:11px;font-weight:400}.autorun-manager-head b{color:#bdb3ff;background:#8266ff22;border-radius:9px;padding:2px 8px}.autorun-manager ul{list-style:none;margin:0;padding:0;max-height:70vh;overflow:auto}.autorun-manager li{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:12px 18px;color:#aebbd2;font:12px Consolas,monospace;border-bottom:1px solid #26334b}.autorun-manager li>div{min-width:0;display:flex;flex-direction:column;gap:4px}.autorun-manager li b{color:#dbe6fa;font-weight:600}.autorun-manager li small{color:#7e8ba5;font:11px Heebo;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.autorun-manager .badge{flex:0 0 auto}.autorun-manager.panels-page{max-width:100%;min-height:520px;margin-top:0}@media(max-width:1100px){.autorun-manager.panels-page{min-width:0}}@media(max-width:680px){.autorun-manager{margin-bottom:14px;border-radius:12px}.autorun-manager.panels-page{min-height:calc(100vh - 155px)}.autorun-manager-head{padding:13px 14px}.autorun-manager li{padding:10px 14px;gap:8px}}';
+  document.head.append(style);
+  const manager=document.createElement('section');
+  manager.className='autorun-manager';manager.id='autoRunsManageSection';manager.hidden=true;
+  manager.innerHTML='<div class="autorun-manager-head"><div><span>הרצות אוטומטיות</span><small id="autoRunsIntervalLabel"></small></div><b id="autoRunsListCount">0</b></div><ul id="autoRunsList"></ul>';
+  document.querySelector('.main').insertBefore(manager,document.querySelector('.cards'));
+  const link=document.createElement('a');link.href='#autoRunsManageSection';link.innerHTML='<i>⏱</i><span>הרצות אוטומטיות</span>';document.querySelector('.sidebar nav').append(link);
+  loadAutoRuns();
+  setInterval(()=>{if(!$('autoRunsManageSection').hidden)loadAutoRuns()},15000);
+}
+
 async function loadDbTable(){
   try{
     const name=$('dbTableSelect').value;
@@ -244,7 +271,7 @@ function translatePage(lang){
   uiLanguage=lang;
   const en=lang==='en';
   const set=(selector,values)=>document.querySelectorAll(selector).forEach((element,index)=>{if(values[index]!==undefined)element.textContent=values[index]});
-  set('.sidebar nav span',en?['Dashboard','Activation results','Manage panels','Valid links','Database']:['לוח בקרה','תוצאות הפעלה','ניהול Panels','לינקים תקינים','מסד נתונים']);
+  set('.sidebar nav span',en?['Dashboard','Activation results','Manage panels','Valid links','Database','Automatic runs']:['לוח בקרה','תוצאות הפעלה','ניהול Panels','לינקים תקינים','מסד נתונים','הרצות אוטומטיות']);
   set('.card-head span',['Panels','Online Devices','Unique Numbers','Activation Links']);
   set('.card small',en?['Panels loaded for scanning','Available devices found','Unique candidates to check','Activation links found']:['פאנלים שנטענו לסריקה','מכשירים זמינים שנמצאו','מועמדים ייחודיים לבדיקה','קישורי הפעלה שהתגלו']);
   set('#resultsSection .panel-head p',[en?'Scan history is saved in the CSV file.':'היסטוריית תוצאות הסריקה נשמרת בקובץ ה־CSV.']);
@@ -260,10 +287,12 @@ function translatePage(lang){
   set('#logsSection .panel-head p',[en?'Scanner output updates automatically.':'פלט הסורק מתעדכן אוטומטית.']);
   const clear=$('clearLogsBtn');if(clear)clear.textContent=en?'Clear view':'נקה תצוגה';
   const manager=document.querySelector('.panel-manager-head span');if(manager)manager.textContent=en?'My panels':'ה־Panels שלי';
+  const autoHead=document.querySelector('.autorun-manager-head>div>span');if(autoHead)autoHead.textContent=en?'Automatic runs':'הרצות אוטומטיות';
   const panelInput=$('newPanel');if(panelInput){panelInput.placeholder=en?'New panel address':'כתובת Panel חדשה';panelInput.setAttribute('aria-label',panelInput.placeholder)}
   const addButton=document.querySelector('#addPanelForm button');if(addButton){addButton.title=en?'Add panel':'הוסף Panel';addButton.setAttribute('aria-label',addButton.title)}
   const side=document.querySelector('.side-note div');if(side&&side.firstChild)side.firstChild.nodeValue=en?'Local scanner':'סורק מקומי';
   document.querySelectorAll('.step em').forEach(element=>{if(en)element.textContent=element.classList.contains('done')?'Done':element.classList.contains('active')?'Active':'Waiting'});
+  if($('autoRunsManageSection'))loadAutoRuns();
 }
 
 function initLanguageToggle(){
@@ -278,12 +307,12 @@ function initLanguageToggle(){
 }
 
 function initViews(){
-  const header=document.querySelector('.header'),cards=$('panelsSection'),grid=document.querySelector('.grid'),pipeline=$('numbersSection'),results=$('resultsSection'),logs=$('logsSection'),panels=$('panelsManageSection'),links=$('linksManageSection'),db=$('dbManageSection');
-  const titles={he:{dashboard:['בקרה וניהול סריקה','מעקב אחר פאנלים, מכשירים ותוצאות הפעלה בזמן אמת.'],results:['תוצאות אחרונות','חיפוש, סינון וייצוא של תוצאות הסריקה.'],logs:['יומן פעילות חי','פלט הסורק בזמן אמת.'],panels:['ניהול Panels','הוספה, צפייה והסרה של Panels לסריקה.'],links:['לינקים תקינים','כל קישורי ההפעלה שנמצאו, עם העתקה מהירה.'],db:['מסד נתונים','צפייה בטבלאות מסד הנתונים של הסורק.']},en:{dashboard:['Scanner control center','Monitor panels, devices, and activation results in real time.'],results:['Latest results','Search, filter, and export scan results.'],logs:['Live activity log','Scanner output in real time.'],panels:['Manage panels','Add, review, and remove panels for scanning.'],links:['Valid links','All activation links found, with quick copy.'],db:['Database','Browse the scanner SQLite tables.']}};
-  const viewForLink=link=>link.dataset.target==='resultsSection'?'results':link.getAttribute('href')==='#panelsManageSection'?'panels':link.getAttribute('href')==='#linksManageSection'?'links':link.getAttribute('href')==='#dbManageSection'?'db':'dashboard';
-  const show=view=>{const isDashboard=view==='dashboard';header.hidden=false;cards.hidden=!isDashboard;grid.hidden=!(isDashboard||view==='results');pipeline.hidden=!isDashboard;results.hidden=view!=='results';logs.hidden=!isDashboard;panels.hidden=view!=='panels';links.hidden=view!=='links';links.classList.toggle('panels-page',view==='links');db.hidden=view!=='db';db.classList.toggle('panels-page',view==='db');if(view==='db')loadDbTables();const copy=titles[uiLanguage][view];header.querySelector('h1').textContent=copy[0];header.querySelector('p').textContent=copy[1];document.querySelectorAll('.sidebar nav a').forEach(link=>link.classList.toggle('active',viewForLink(link)===view));window.scrollTo({top:0,behavior:'smooth'});};
+  const header=document.querySelector('.header'),cards=$('panelsSection'),grid=document.querySelector('.grid'),pipeline=$('numbersSection'),results=$('resultsSection'),logs=$('logsSection'),panels=$('panelsManageSection'),links=$('linksManageSection'),db=$('dbManageSection'),autoruns=$('autoRunsManageSection');
+  const titles={he:{dashboard:['בקרה וניהול סריקה','מעקב אחר פאנלים, מכשירים ותוצאות הפעלה בזמן אמת.'],results:['תוצאות אחרונות','חיפוש, סינון וייצוא של תוצאות הסריקה.'],logs:['יומן פעילות חי','פלט הסורק בזמן אמת.'],panels:['ניהול Panels','הוספה, צפייה והסרה של Panels לסריקה.'],links:['לינקים תקינים','כל קישורי ההפעלה שנמצאו, עם העתקה מהירה.'],db:['מסד נתונים','צפייה בטבלאות מסד הנתונים של הסורק.'],autoruns:['הרצות אוטומטיות','יומן כל ההרצות האוטומטיות של הסורק.']},en:{dashboard:['Scanner control center','Monitor panels, devices, and activation results in real time.'],results:['Latest results','Search, filter, and export scan results.'],logs:['Live activity log','Scanner output in real time.'],panels:['Manage panels','Add, review, and remove panels for scanning.'],links:['Valid links','All activation links found, with quick copy.'],db:['Database','Browse the scanner SQLite tables.'],autoruns:['Automatic runs','Log of every automatic scan trigger.']}};
+  const viewForLink=link=>link.dataset.target==='resultsSection'?'results':link.getAttribute('href')==='#panelsManageSection'?'panels':link.getAttribute('href')==='#linksManageSection'?'links':link.getAttribute('href')==='#dbManageSection'?'db':link.getAttribute('href')==='#autoRunsManageSection'?'autoruns':'dashboard';
+  const show=view=>{const isDashboard=view==='dashboard';header.hidden=false;cards.hidden=!isDashboard;grid.hidden=!(isDashboard||view==='results');pipeline.hidden=!isDashboard;results.hidden=view!=='results';logs.hidden=!isDashboard;panels.hidden=view!=='panels';links.hidden=view!=='links';links.classList.toggle('panels-page',view==='links');db.hidden=view!=='db';db.classList.toggle('panels-page',view==='db');if(view==='db')loadDbTables();autoruns.hidden=view!=='autoruns';autoruns.classList.toggle('panels-page',view==='autoruns');if(view==='autoruns')loadAutoRuns();const copy=titles[uiLanguage][view];header.querySelector('h1').textContent=copy[0];header.querySelector('p').textContent=copy[1];document.querySelectorAll('.sidebar nav a').forEach(link=>link.classList.toggle('active',viewForLink(link)===view));window.scrollTo({top:0,behavior:'smooth'});};
   document.querySelectorAll('.sidebar nav a').forEach(link=>link.addEventListener('click',event=>{event.preventDefault();show(viewForLink(link))}));
   show('dashboard');
 }
 
-document.addEventListener('DOMContentLoaded',()=>{initSidebar();initPanelManager();initLinksManager();initDbViewer();initLanguageToggle();initViews()});
+document.addEventListener('DOMContentLoaded',()=>{initSidebar();initPanelManager();initLinksManager();initDbViewer();initAutoRunsManager();initLanguageToggle();initViews()});

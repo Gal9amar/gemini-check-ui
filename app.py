@@ -360,6 +360,14 @@ def init_db():
                 value TEXT
             )
         """)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS auto_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ran_at TEXT NOT NULL,
+                status TEXT NOT NULL,
+                message TEXT
+            )
+        """)
         db.commit()
     migrate_legacy_files()
 
@@ -452,6 +460,24 @@ def write_active_panels_feed(db):
         encoding="utf-8",
     )
     return len(rows)
+
+
+MAX_AUTO_RUNS = 500
+
+
+def record_auto_run(ran_at: str, status: str, message: str | None = None):
+    """Persist one automatic-scan trigger so the sidebar can show a history of runs."""
+    with get_db() as db:
+        db.execute(
+            "INSERT INTO auto_runs (ran_at, status, message) VALUES (?, ?, ?)",
+            (ran_at, status, message),
+        )
+        db.execute(
+            "DELETE FROM auto_runs WHERE id NOT IN "
+            "(SELECT id FROM auto_runs ORDER BY id DESC LIMIT ?)",
+            (MAX_AUTO_RUNS,),
+        )
+        db.commit()
 
 
 def log(line: str):
@@ -584,6 +610,18 @@ def api_links():
             "WHERE TRIM(COALESCE(activation_url, '')) != '' ORDER BY id DESC LIMIT 5000"
         ).fetchall()
     return jsonify([dict(row) for row in rows])
+
+
+@app.get("/api/auto-runs")
+def api_auto_runs():
+    with get_db() as db:
+        rows = db.execute(
+            "SELECT ran_at, status, message FROM auto_runs ORDER BY id DESC LIMIT 200"
+        ).fetchall()
+    return jsonify({
+        "interval_minutes": AUTO_SCAN_INTERVAL_MINUTES,
+        "runs": [dict(row) for row in rows],
+    })
 
 
 def db_table_names(db):
@@ -744,6 +782,8 @@ def dashboard_data(kind: str):
         payload = api_review_panels().get_json()
     elif kind == "links":
         payload = api_links().get_json()
+    elif kind == "auto-runs":
+        payload = api_auto_runs().get_json()
     elif kind == "db-backend":
         payload = api_db_backend().get_json()
     elif kind == "db-tables":
@@ -917,10 +957,17 @@ def auto_scan_loop():
     interval_seconds = AUTO_SCAN_INTERVAL_MINUTES * 60
     while True:
         time.sleep(interval_seconds)
+        ran_at = datetime.now(timezone.utc).isoformat()
         try:
-            start_scan()
+            ok, error, _ = start_scan()
+            status, message = ("started", None) if ok else ("skipped", error)
         except Exception as e:
+            ok, status, message = False, "error", str(e)
             log(f"Scheduled scan failed to start: {e}")
+        try:
+            record_auto_run(ran_at, status, message)
+        except Exception as e:
+            log(f"Failed to record automatic run: {e}")
 
 
 init_db()
