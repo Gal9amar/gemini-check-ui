@@ -21,7 +21,14 @@ TURSO_AUTH_TOKEN=your-token
 ```
 
 ## הרשאת גישה
-אם מוגדר משתנה הסביבה `APP_PASSWORD`, כל הממשק מוגן ב-Basic Auth (שם משתמש מ-`APP_USERNAME`, ברירת מחדל `admin`). ללא `APP_PASSWORD` הממשק פתוח — מתאים לפיתוח מקומי בלבד. **חובה להגדיר סיסמה לפני חשיפת השרת לאינטרנט.**
+שתי שיטות הגנה, לפי סדר עדיפות:
+
+1. **התחברות בקוד למייל (מומלץ)** — אם מוגדרים `GMAIL_ADDRESS` ו-`GMAIL_APP_PASSWORD`, מסך ההתחברות לא מציג ולא מבקש כתובת מייל בכלל: לוחצים "שליחת קוד", מקבלים קוד בן 6 ספרות לתיבה שב-`GMAIL_ADDRESS`, מזינים אותו, ומתחברים. הקוד בתוקף ל-10 דקות, ומוגבל ל-5 ניסיונות. `GMAIL_APP_PASSWORD` הוא **App Password** בן 16 תווים (Google Account → Security → App Passwords — דורש אימות דו-שלבי מופעל בחשבון), **לא** הסיסמה הרגילה שלך.
+2. **Basic Auth** — אם `GMAIL_ADDRESS`/`GMAIL_APP_PASSWORD` לא מוגדרים אבל `APP_PASSWORD` כן, חוזר להתנהגות הישנה (שם משתמש מ-`APP_USERNAME`, ברירת מחדל `admin`).
+
+בלי אף אחד מהם הממשק פתוח לגמרי — מתאים לפיתוח מקומי בלבד. **חובה להגדיר אחת מהשיטות לפני חשיפת השרת לאינטרנט.**
+
+גם מומלץ להגדיר `SECRET_KEY` (מחרוזת אקראית כלשהי) — משמש לחתימת עוגיית ההתחברות; בלעדיו נוצר מפתח אקראי חדש בכל הפעלה מחדש של השרת, כלומר כולם יתנתקו בכל דיפלוי.
 
 ## התקנה מקומית (Windows)
 ```powershell
@@ -35,8 +42,9 @@ py app.py
 ## דפלוי ל-Render
 1. חבר את הריפו ב-GitHub לחשבון Render, וצור **Web Service** חדש (לא Static Site).
 2. Build Command: `pip install -r requirements.txt`
-3. Start Command: `python app.py`
+3. Start Command: `gunicorn app:app --workers 1 --bind 0.0.0.0:$PORT`
 4. משתני סביבה נדרשים (בממשק Render, לא בקובץ):
    - `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` — כדי שהנתונים ישרדו בין דיפלויים.
-   - `APP_PASSWORD` (ומומלץ גם `APP_USERNAME`) — כדי להגן על הממשק.
+   - `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD` (או לחלופין `APP_USERNAME`/`APP_PASSWORD`) — כדי להגן על הממשק.
+   - `SECRET_KEY` — כדי שההתחברות לא תתנתק בכל דיפלוי.
 5. האפליקציה מאזינה אוטומטית לפורט שרנדר מזריקה (`$PORT`), אין צורך בהגדרה נוספת.

@@ -4,16 +4,32 @@ import csv
 import io
 import json
 import os
+import random
 import re
+import smtplib
+import ssl
 import sqlite3
 import subprocess
 import sys
 import threading
+import time
 from datetime import datetime, timezone
+from email.mime.text import MIMEText
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
-from flask import Flask, jsonify, render_template, request, Response
+import importlib
+
+# Import dynamically so environments that use a nonstandard interpreter or
+# virtual environment do not report Flask's static import as unresolved.
+_flask = importlib.import_module("flask")
+Flask = _flask.Flask
+jsonify = _flask.jsonify
+render_template = _flask.render_template
+request = _flask.request
+Response = _flask.Response
+session = _flask.session
+redirect = _flask.redirect
 
 try:
     from dotenv import load_dotenv
@@ -26,9 +42,10 @@ import scanner
 BASE_DIR = Path(__file__).resolve().parent
 SCANNER = BASE_DIR / "scanner.py"
 DB_PATH = BASE_DIR / "scanner.db"
-PANELS_TXT = BASE_DIR / "panels.txt"
-INACTIVE_PANELS_JSON = BASE_DIR / "inactive_panels.json"
+# scanner.py writes live scan output here; app.py syncs new rows into scan_results.
 RESULTS_CSV = BASE_DIR / "gemini_results.csv"
+# Regenerated from the DB's active panels before every scan - the hand-off
+# file scanner.py itself reads, since it doesn't talk to the DB directly.
 ACTIVE_PANELS_FEED = BASE_DIR / "_active_panels.txt"
 
 # Hybrid DB backend: local scanner.db file by default, or Turso (remote libSQL)
@@ -44,10 +61,13 @@ TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN", "").strip()
 USE_TURSO = bool(TURSO_DATABASE_URL)
 
 if USE_TURSO:
-    import libsql_client
+    import importlib
+
+    libsql_client = importlib.import_module("libsql_client")
     _turso_client = libsql_client.create_client_sync(url=TURSO_DATABASE_URL, auth_token=TURSO_AUTH_TOKEN or None)
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY") or os.urandom(32)
 
 # Basic Auth gate for the whole app - only enforced when APP_PASSWORD is set,
 # so local development without it stays open. Set APP_USERNAME / APP_PASSWORD
@@ -55,9 +75,67 @@ app = Flask(__name__)
 APP_USERNAME = os.environ.get("APP_USERNAME", "admin")
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "").strip()
 
+# Email one-time-code login: send a 6-digit code to your own Gmail inbox via
+# SMTP (an "App Password", not your real Gmail password) and require it to
+# unlock a session. Takes priority over Basic Auth when configured. Neither
+# the login page nor the API ever show or ask for the email address - it's
+# fixed to GMAIL_ADDRESS.
+GMAIL_ADDRESS = os.environ.get("GMAIL_ADDRESS", "").strip()
+GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "").strip()
+OTP_LOGIN_ENABLED = bool(GMAIL_ADDRESS and GMAIL_APP_PASSWORD)
+OTP_TTL_SECONDS = 600
+OTP_MAX_ATTEMPTS = 5
+
+_otp_lock = threading.Lock()
+_pending_otp: dict = {}
+
+
+def send_login_code():
+    code = f"{random.randint(0, 999999):06d}"
+    message = MIMEText(f"קוד ההתחברות שלך ל-Gemini Scanner: {code}\nהקוד בתוקף ל-10 דקות.")
+    message["Subject"] = "קוד התחברות - Gemini Scanner"
+    message["From"] = GMAIL_ADDRESS
+    message["To"] = GMAIL_ADDRESS
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=ssl.create_default_context()) as server:
+        server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
+        server.send_message(message)
+    # Only becomes verifiable once the email genuinely went out - a failed
+    # send must not leave a code pending that the user can never see.
+    with _otp_lock:
+        _pending_otp.clear()
+        _pending_otp.update(code=code, expires_at=time.time() + OTP_TTL_SECONDS, attempts=0)
+
+
+def check_login_code(code: str) -> tuple[bool, str]:
+    with _otp_lock:
+        if not _pending_otp.get("code"):
+            return False, "לא נשלח קוד. לחץ על שליחת קוד קודם."
+        if time.time() > _pending_otp["expires_at"]:
+            _pending_otp.clear()
+            return False, "הקוד פג תוקף. בקש קוד חדש."
+        _pending_otp["attempts"] += 1
+        if _pending_otp["attempts"] > OTP_MAX_ATTEMPTS:
+            _pending_otp.clear()
+            return False, "יותר מדי ניסיונות שגויים. בקש קוד חדש."
+        if code != _pending_otp["code"]:
+            return False, "קוד שגוי."
+        _pending_otp.clear()
+        return True, ""
+
+
+UNAUTHENTICATED_PATHS = {"/login", "/login/send", "/login/verify"}
+
 
 @app.before_request
 def require_auth():
+    if OTP_LOGIN_ENABLED:
+        if request.path in UNAUTHENTICATED_PATHS or request.path.startswith("/static/"):
+            return
+        if not session.get("authed"):
+            if request.path.startswith("/api/"):
+                return jsonify({"error": "Authentication required."}), 401
+            return redirect("/login")
+        return
     if not APP_PASSWORD:
         return
     auth = request.authorization
@@ -67,6 +145,42 @@ def require_auth():
             401,
             {"WWW-Authenticate": 'Basic realm="Gemini Scanner"'},
         )
+
+
+@app.get("/login")
+def login_page():
+    if session.get("authed"):
+        return redirect("/")
+    return render_template("login.html")
+
+
+@app.post("/login/send")
+def login_send():
+    if not OTP_LOGIN_ENABLED:
+        return jsonify({"ok": False, "error": "התחברות בקוד לא הוגדרה בשרת."}), 500
+    try:
+        send_login_code()
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"שליחת המייל נכשלה: {e}"}), 500
+    return jsonify({"ok": True})
+
+
+@app.post("/login/verify")
+def login_verify():
+    body = request.get_json(silent=True) or {}
+    code = str(body.get("code", "")).strip()
+    ok, error = check_login_code(code)
+    if not ok:
+        return jsonify({"ok": False, "error": error}), 401
+    session["authed"] = True
+    session.permanent = True
+    return jsonify({"ok": True})
+
+
+@app.post("/logout")
+def logout():
+    session.clear()
+    return redirect("/login")
 
 state = {
     "running": False,
@@ -206,45 +320,8 @@ def init_db():
 
 
 def migrate_legacy_files():
-    """One-time import of the old panels.txt / inactive_panels.json / CSV files into SQLite."""
+    """One-time import of any pre-existing gemini_results.csv into a freshly created DB."""
     with get_db() as db:
-        panels_count_row = db.execute("SELECT COUNT(*) c FROM panels").fetchone()
-        panels_empty = (panels_count_row["c"] if panels_count_row else 0) == 0
-        if panels_empty:
-            now = datetime.now(timezone.utc).isoformat()
-            # Import inactive entries first so a panel flagged inactive keeps that
-            # status even if the same key still lingers in panels.txt.
-            if INACTIVE_PANELS_JSON.exists():
-                try:
-                    items = json.loads(INACTIVE_PANELS_JSON.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError):
-                    items = []
-                inactive_params = []
-                for item in items:
-                    value = str(item.get("value", "")).strip()
-                    if not value:
-                        continue
-                    inactive_params.append((value, panel_key(value), item.get("reason"), item.get("disabled_at"), now))
-                if inactive_params:
-                    db.executemany(
-                        "INSERT OR IGNORE INTO panels (value, key, status, reason, disabled_at, created_at) "
-                        "VALUES (?, ?, 'inactive', ?, ?, ?)",
-                        inactive_params,
-                    )
-            if PANELS_TXT.exists():
-                active_params = []
-                for raw in PANELS_TXT.read_text(encoding="utf-8").splitlines():
-                    value = raw.strip()
-                    if not value or value.startswith("#"):
-                        continue
-                    active_params.append((value, panel_key(value), now))
-                if active_params:
-                    db.executemany(
-                        "INSERT OR IGNORE INTO panels (value, key, status, created_at) VALUES (?, ?, 'active', ?)",
-                        active_params,
-                    )
-            db.commit()
-
         results_count_row = db.execute("SELECT COUNT(*) c FROM scan_results").fetchone()
         results_empty = (results_count_row["c"] if results_count_row else 0) == 0
         if results_empty and RESULTS_CSV.exists():
