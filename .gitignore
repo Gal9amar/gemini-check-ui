@@ -4,3 +4,5 @@ __pycache__/
 scanner.db
 _active_panels.txt
 .venv/
+gemini_results.csv
+gemini_activation_links.txt

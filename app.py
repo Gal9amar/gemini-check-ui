@@ -143,6 +143,18 @@ def require_auth():
         if request.path in UNAUTHENTICATED_PATHS or request.path.startswith("/static/"):
             return
         if not session.get("authed"):
+            # A JSONP endpoint is loaded via a <script src> tag, so a plain
+            # 401 JSON body never calls the client's callback - the request
+            # just silently times out and the panel/results lists look
+            # empty. Respond in valid JSONP so the client notices immediately
+            # and can redirect to /login instead of hanging for 8 seconds.
+            if request.path.startswith("/api/dashboard/"):
+                callback = request.args.get("callback", "")
+                if re.fullmatch(r"[A-Za-z_$][\w$]*", callback):
+                    return Response(
+                        f"{callback}({{\"__unauthenticated__\": true}});",
+                        mimetype="application/javascript",
+                    )
             if request.path.startswith("/api/"):
                 return jsonify({"error": "Authentication required."}), 401
             return redirect("/login")
@@ -556,6 +568,11 @@ def table_count(db, name: str) -> int:
     return row["c"] if row else 0
 
 
+@app.get("/api/db/backend")
+def api_db_backend():
+    return jsonify({"backend": "Turso" if USE_TURSO else "SQLite מקומי"})
+
+
 @app.get("/api/db/tables")
 def api_db_tables():
     with get_db() as db:
@@ -695,6 +712,8 @@ def dashboard_data(kind: str):
         payload = api_review_panels().get_json()
     elif kind == "links":
         payload = api_links().get_json()
+    elif kind == "db-backend":
+        payload = api_db_backend().get_json()
     elif kind == "db-tables":
         payload = api_db_tables().get_json()
     elif kind.startswith("db-table-"):
