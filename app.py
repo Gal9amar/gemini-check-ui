@@ -96,7 +96,7 @@ def send_login_code():
     message["Subject"] = "קוד התחברות - Gemini Scanner"
     message["From"] = GMAIL_ADDRESS
     message["To"] = GMAIL_ADDRESS
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=ssl.create_default_context()) as server:
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15, context=ssl.create_default_context()) as server:
         server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
         server.send_message(message)
     # Only becomes verifiable once the email genuinely went out - a failed
