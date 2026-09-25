@@ -94,21 +94,33 @@ _otp_lock = threading.Lock()
 _pending_otp: dict = {}
 
 
-def send_login_code():
-    code = f"{random.randint(0, 999999):06d}"
+def send_email(subject: str, text: str):
     response = requests.post(
         "https://api.resend.com/emails",
         headers={"Authorization": f"Bearer {RESEND_API_KEY}"},
-        json={
-            "from": RESEND_FROM_ADDRESS,
-            "to": LOGIN_EMAIL,
-            "subject": "קוד התחברות - Gemini Scanner",
-            "text": f"קוד ההתחברות שלך ל-Gemini Scanner: {code}\nהקוד בתוקף ל-10 דקות.",
-        },
+        json={"from": RESEND_FROM_ADDRESS, "to": LOGIN_EMAIL, "subject": subject, "text": text},
         timeout=15,
     )
     if not response.ok:
         raise RuntimeError(f"Resend {response.status_code}: {response.text[:200]}")
+
+
+def notify_new_links(rows):
+    lines = [
+        f"{row['activation_url']}\n  Device: {row['device_id']}  Mobile: {row['mobile_number']}"
+        for row in rows
+    ]
+    subject = f"נמצאו {len(rows)} קישורי הפעלה חדשים - Gemini Scanner"
+    text = "הסריקה מצאה קישורי הפעלה חדשים:\n\n" + "\n\n".join(lines)
+    send_email(subject, text)
+
+
+def send_login_code():
+    code = f"{random.randint(0, 999999):06d}"
+    send_email(
+        "קוד התחברות - Gemini Scanner",
+        f"קוד ההתחברות שלך ל-Gemini Scanner: {code}\nהקוד בתוקף ל-10 דקות.",
+    )
     # Only becomes verifiable once the email genuinely went out - a failed
     # send must not leave a code pending that the user can never see.
     with _otp_lock:
@@ -484,7 +496,7 @@ def log(line: str):
             state["processed"] += 1
 
 
-def reader(p):
+def reader(p, before_id=0):
     global proc
     try:
         for raw in iter(p.stdout.readline, ""):
@@ -501,6 +513,16 @@ def reader(p):
         proc = None
         with get_db() as db:
             sync_results_from_csv(db)
+            new_links = db.execute(
+                "SELECT device_id, mobile_number, activation_url FROM scan_results "
+                "WHERE id > ? AND TRIM(COALESCE(activation_url, '')) != ''",
+                (before_id,),
+            ).fetchall()
+        if new_links and RESEND_API_KEY and LOGIN_EMAIL:
+            try:
+                notify_new_links(new_links)
+            except Exception as e:
+                log(f"Link notification email failed: {e}")
 
 
 def reset_state():
@@ -805,21 +827,24 @@ def remove_panel_form(panel_id: int):
     return delete_panel(panel_id)
 
 
-@app.post("/api/start")
-def start():
+def start_scan(extra_args: dict | None = None):
+    """Launch a scan. Shared by the /api/start route and the automatic scheduler.
+    Returns (ok, error, status_code)."""
     global proc
     with lock:
         if state["running"]:
-            return jsonify({"ok": False, "error": "A scan is already running."}), 409
+            return False, "A scan is already running.", 409
     if not SCANNER.exists():
-        return jsonify({"ok": False, "error": "scanner.py not found."}), 500
+        return False, "scanner.py not found.", 500
 
     with get_db() as db:
         panel_count = write_active_panels_feed(db)
+        row = db.execute("SELECT COALESCE(MAX(id), 0) m FROM scan_results").fetchone()
+        before_id = row["m"] if row else 0
     if panel_count == 0:
-        return jsonify({"ok": False, "error": "No active panels to scan."}), 400
+        return False, "No active panels to scan.", 400
 
-    body = request.get_json(silent=True) or {}
+    body = extra_args or {}
     # The scanner writes into a pipe, where Python normally buffers output.
     # Unbuffered mode lets the dashboard receive each progress line promptly.
     args = [sys.executable, "-u", str(SCANNER), "--panels", str(ACTIVE_PANELS_FEED)]
@@ -838,7 +863,15 @@ def start():
         errors="replace",
         bufsize=1,
     )
-    threading.Thread(target=reader, args=(proc,), daemon=True).start()
+    threading.Thread(target=reader, args=(proc, before_id), daemon=True).start()
+    return True, None, 200
+
+
+@app.post("/api/start")
+def start():
+    ok, error, status_code = start_scan(request.get_json(silent=True) or {})
+    if not ok:
+        return jsonify({"ok": False, "error": error}), status_code
     return jsonify({"ok": True})
 
 
@@ -873,7 +906,27 @@ def export_csv():
     )
 
 
+# Automatic recurring scan. Runs inside this same process (a background
+# thread), so it only fires reliably while the process stays alive - fine
+# here since an external uptime pinger keeps the free Render instance awake.
+# Set AUTO_SCAN_INTERVAL_MINUTES=0 to disable.
+AUTO_SCAN_INTERVAL_MINUTES = int(os.environ.get("AUTO_SCAN_INTERVAL_MINUTES", "30") or "0")
+
+
+def auto_scan_loop():
+    interval_seconds = AUTO_SCAN_INTERVAL_MINUTES * 60
+    while True:
+        time.sleep(interval_seconds)
+        try:
+            start_scan()
+        except Exception as e:
+            log(f"Scheduled scan failed to start: {e}")
+
+
 init_db()
+
+if AUTO_SCAN_INTERVAL_MINUTES > 0:
+    threading.Thread(target=auto_scan_loop, daemon=True).start()
 
 if __name__ == "__main__":
     # 0.0.0.0 + $PORT so this also works as a Render web service (which injects
